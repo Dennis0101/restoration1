@@ -14,7 +14,7 @@
     "start:api": "node apps/api/dist/index.js",
     "start:bot": "node apps/bot/dist/bot.js",
     "start:worker": "node apps/worker/dist/worker.js",
-
+    "prestart:all": "npm run build",
     "start:all": "sh -c \"(npm run db:migrate || npm run db:push) && npm-run-all -p start:api start:bot start:worker\"",
 
     "prisma:generate": "prisma generate",
