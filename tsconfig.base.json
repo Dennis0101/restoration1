@@ -6,6 +6,8 @@
     "strict": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+
+    "types": ["node"]   // Node.js 타입 인식
   }
 }
