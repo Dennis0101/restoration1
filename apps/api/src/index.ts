@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { oauthRouter } from './routes.oauth';
 import { cohortRouter } from './routes.cohort';
 import { restoreRouter } from './routes.restore';
@@ -7,7 +7,8 @@ import { verifyRouter } from './routes.verify';
 const app = express();
 app.use(express.json());
 
-app.get('/', (_req, res) => res.send('Restoration API running'));
+app.get('/', (_req: Request, res: Response) => res.send('Restoration API running'));
+
 app.use('/oauth', oauthRouter);
 app.use('/cohort', cohortRouter);
 app.use('/', restoreRouter);
