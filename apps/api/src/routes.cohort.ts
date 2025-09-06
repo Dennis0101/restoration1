@@ -1,12 +1,12 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 export const cohortRouter = Router();
 
-cohortRouter.post('/', async (req, res) => {
-  const { guildId } = req.body as { guildId: string };
+cohortRouter.post('/', async (req: Request, res: Response) => {
+  const { guildId } = req.body as { guildId?: string };
   if (!guildId) return res.status(400).json({ error: 'guildId required' });
   await prisma.guild.upsert({ where: { id: guildId }, update: {}, create: { id: guildId } });
   const key = crypto.randomBytes(5).toString('hex');
