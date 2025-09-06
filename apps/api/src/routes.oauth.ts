@@ -1,12 +1,12 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { oauthExchange, me, /*oauthRefresh,*/ } from './discord';
+import { oauthExchange, me } from './discord';
 
 const prisma = new PrismaClient();
 export const oauthRouter = Router();
 const redirect = process.env.OAUTH_REDIRECT_URI!;
 
-oauthRouter.get('/login', (req, res) => {
+oauthRouter.get('/login', (req: Request, res: Response) => {
   const key = String(req.query.key ?? '');
   if (!key) return res.status(400).send('key required');
   const url = new URL('https://discord.com/oauth2/authorize');
@@ -18,7 +18,7 @@ oauthRouter.get('/login', (req, res) => {
   res.redirect(url.toString());
 });
 
-oauthRouter.get('/callback', async (req, res) => {
+oauthRouter.get('/callback', async (req: Request, res: Response) => {
   try {
     const code = String(req.query.code ?? '');
     const key  = String(req.query.state ?? '');
@@ -30,11 +30,6 @@ oauthRouter.get('/callback', async (req, res) => {
     const t = await oauthExchange(code, redirect);
     const user = await me(t.access_token);
 
-    let roleSnapshot: any = null;
-    const member = await prisma.$queryRawUnsafe<any[]>(`
-      SELECT 1
-    `); // 스냅샷은 워커에서 다시 복구하므로 MVP에선 생략 or 추후 디스코드 멤버 조회 사용
-
     await prisma.recoveryMember.upsert({
       where: { cohortId_userId: { cohortId: cohort.id, userId: user.id } },
       update: {
@@ -42,7 +37,7 @@ oauthRouter.get('/callback', async (req, res) => {
         refreshTokenEnc: Buffer.from(t.refresh_token, 'utf8').toString('base64'),
         tokenScope: t.scope,
         tokenExpiresAt: new Date(Date.now() + t.expires_in * 1000),
-        roleSnapshot
+        roleSnapshot: null
       },
       create: {
         cohortId: cohort.id, userId: user.id,
@@ -50,7 +45,7 @@ oauthRouter.get('/callback', async (req, res) => {
         refreshTokenEnc: Buffer.from(t.refresh_token, 'utf8').toString('base64'),
         tokenScope: t.scope,
         tokenExpiresAt: new Date(Date.now() + t.expires_in * 1000),
-        roleSnapshot
+        roleSnapshot: null
       }
     });
 
