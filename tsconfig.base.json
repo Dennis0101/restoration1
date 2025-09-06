@@ -8,6 +8,6 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
 
-    "types": ["node"]   // Node.js 타입 인식
+    "types": ["node"]   
   }
 }
