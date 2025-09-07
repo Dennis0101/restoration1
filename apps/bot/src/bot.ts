@@ -17,12 +17,12 @@ const client = new Client({
   partials: [Partials.GuildMember],
 });
 
-// ---- READY 이벤트: v15 대비 clientReady 사용 ----
+// v15 대비: ready → clientReady
 client.once('clientReady', () => {
   console.log(`🤖 ${client.user?.tag} ready`);
 });
 
-// ---- Ephemeral: deprecated 옵션 제거 → flags: 64 사용 ----
+// ephemeral 옵션 deprecated → flags 사용
 const EPHEMERAL = 64; // MessageFlags.Ephemeral
 
 // ---- API BASE URL 정규화 & axios 인스턴스 ----
@@ -53,7 +53,7 @@ async function postJson(path: string, data: any, retries = 2): Promise<AxiosResp
       const body = e?.response?.data;
       console.error(`HTTP POST ${url} failed [${status ?? 'no-status'}]:`, body ?? e?.message);
       if (status && status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
         continue;
       }
       throw e;
@@ -72,7 +72,7 @@ async function getJson(path: string, retries = 2): Promise<AxiosResponse<any>> {
       const body = e?.response?.data;
       console.error(`HTTP GET ${url} failed [${status ?? 'no-status'}]:`, body ?? e?.message);
       if (status && status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
         continue;
       }
       throw e;
@@ -107,7 +107,10 @@ client.on('interactionCreate', async (i) => {
       const job = i.options.getString('job', true);
       const resp = await getJson(`/status/${encodeURIComponent(job)}`);
       const data = resp.data;
-      await i.reply({ flags: EPHEMERAL, content: `상태: ${data.status} (${data.progress}%) ${data.error ?? ''}` });
+      await i.reply({
+        flags: EPHEMERAL,
+        content: `상태: ${data.status} (${data.progress}%) ${data.error ?? ''}`,
+      });
     }
 
     if (i.commandName === 'verify_msg') {
