@@ -1,15 +1,22 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import crypto from 'crypto';
 
-const prisma = new PrismaClient();
 export const cohortRouter = Router();
+const prisma = new PrismaClient();
 
-cohortRouter.post('/', async (req: Request, res: Response) => {
-  const { guildId } = req.body as { guildId?: string };
+// ✅ 반드시 "완전 경로" 사용
+cohortRouter.post('/cohort', async (req, res) => {
+  const guildId = req.body?.guildId as string | undefined;
   if (!guildId) return res.status(400).json({ error: 'guildId required' });
-  await prisma.guild.upsert({ where: { id: guildId }, update: {}, create: { id: guildId } });
-  const key = crypto.randomBytes(5).toString('hex');
-  const c = await prisma.recoveryCohort.create({ data: { guildId, key } });
-  res.json({ key: c.key, oauth: `${process.env.API_BASE_URL}/oauth/login?key=${c.key}` });
+
+  // 키 발급 로직 예시
+  const cohort = await prisma.recoveryCohort.create({
+    data: {
+      guildId,
+      key: Math.random().toString(36).slice(2, 10),
+    },
+    select: { id: true, key: true },
+  });
+
+  return res.json({ id: cohort.id, key: cohort.key });
 });
