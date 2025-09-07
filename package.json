@@ -1,11 +1,8 @@
 {
   "name": "restoration",
   "private": true,
-  "type": "module",
   "workspaces": ["apps/*", "packages/*"],
-  "engines": {
-    "node": ">=18.17"
-  },
+  "engines": { "node": ">=18.17" },
   "packageManager": "npm@10",
   "scripts": {
     "prebuild": "npm run prisma:generate",
@@ -13,14 +10,16 @@
     "build:api": "tsc -p apps/api/tsconfig.json",
     "build:bot": "tsc -p apps/bot/tsconfig.json",
     "build:worker": "tsc -p apps/worker/tsconfig.json",
-    "start": "echo \"Use start:all | start:api | start:bot | start:worker\" && exit 0",
+
     "start:all": "sh -lc \"(npm run db:migrate || npm run db:push) && npm-run-all -p start:api start:bot start:worker\"",
     "start:api": "node apps/api/dist/index.js",
     "start:bot": "node apps/bot/dist/bot.js",
     "start:worker": "node apps/worker/dist/worker.js",
+
     "prisma:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy",
+
     "register": "npm run build:bot && node apps/bot/dist/registerCommands.js"
   },
   "dependencies": {
