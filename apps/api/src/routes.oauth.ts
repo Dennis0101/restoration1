@@ -22,8 +22,7 @@ function clientIp(req: Request) {
 }
 
 function html(body: string) {
-  return `
-<!doctype html>
+  return `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
@@ -71,9 +70,9 @@ verifyRouter.get('/verify', rateLimit, async (req: Request, res: Response) => {
       return res.status(400).send(html(`<h2 class="err">잘못된 요청</h2><p>guild 파라미터가 필요합니다.</p>`));
     }
 
-    // 현재 경로 self-action (배포 환경에서 URL 꼬임 방지)
+    // renderCaptcha는 (siteKey, guildId, userId?) 3개 인자만 사용
     res.setHeader('Content-Type', 'text/html')
-       .send(renderCaptcha(SITEKEY!, guildId, userId || undefined, '/verify'));
+       .send(renderCaptcha(SITEKEY!, guildId, userId || undefined));
   } catch (e: any) {
     console.error('GET /verify failed:', e?.response?.data || e?.message || e);
     res.status(500).send(html(`<h2 class="err">서버 오류</h2><p>잠시 후 다시 시도해주세요.</p>`));
