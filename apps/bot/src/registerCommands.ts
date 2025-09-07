@@ -1,5 +1,5 @@
 // apps/bot/src/registerCommands.ts
-import { REST, Routes, Client, GatewayIntentBits } from "discord.js";
+import { REST, Routes, Client, GatewayIntentBits, TextChannel } from "discord.js";
 import { commands } from "./commands";
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN!);
@@ -20,12 +20,11 @@ async function main() {
     client.once("ready", async () => {
       console.log(`Logged in as ${client.user?.tag}`);
 
-      // 👉 메시지를 보낼 채널 ID 입력해야 함
-      const channelId = "1413350627936833637";
+      const channelId = "1413350627936833637"; // 🔑 채널 ID
       const channel = await client.channels.fetch(channelId);
 
-      if (channel?.isTextBased()) {
-        await channel.send("✅ 글로벌 슬래시 명령어 등록 완료!");
+      if (channel && channel.isTextBased()) {
+        (channel as TextChannel).send("✅ 글로벌 슬래시 명령어 등록 완료!");
       }
 
       client.destroy(); // 작업 끝나면 봇 종료
