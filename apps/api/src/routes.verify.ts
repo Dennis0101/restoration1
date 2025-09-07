@@ -1,5 +1,5 @@
 // apps/api/src/routes.verify.ts
-import { Router, Request, Response, urlencoded } from 'express';
+import { Router, Request, Response, urlencoded, NextFunction } from 'express';
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { renderCaptcha } from './render';
@@ -22,23 +22,21 @@ function clientIp(req: Request) {
 }
 
 function html(body: string) {
-  return (
-`<!doctype html>
+  return `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   body{font-family:system-ui, -apple-system, 'Segoe UI', Roboto, Arial, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; padding:24px; line-height:1.5}
   .ok{color:#16a34a}.err{color:#dc2626}.btn{display:inline-block;margin-top:12px;padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none}
 </style>
-${body}`
-  );
+${body}`;
 }
 
 // 간단 레이트리밋 (IP당 초당 5회)
 const windowMs = 1000;
 const maxReq = 5;
 const hits = new Map<string, { t: number; c: number }>();
-function rateLimit(req: Request, res: Response, next: Function) {
+function rateLimit(req: Request, res: Response, next: NextFunction) {
   const ip = clientIp(req);
   const now = Date.now();
   const row = hits.get(ip);
@@ -67,10 +65,9 @@ verifyRouter.get('/verify', rateLimit, async (req: Request, res: Response) => {
       return res.status(400).send(html(`<h2 class="err">잘못된 요청</h2><p>guild 파라미터가 필요합니다.</p>`));
     }
 
-    // 현재 경로를 액션으로 사용(슬래시/도메인 문제 회피)
-    const action = '/verify';
+    // renderCaptcha는 3개 인자 사용 (action은 render.ts에서 '/verify'로 고정)
     res.setHeader('Content-Type', 'text/html')
-       .send(renderCaptcha(SITEKEY, guildId, userId || undefined, action));
+       .send(renderCaptcha(SITEKEY!, guildId, userId || undefined));
   } catch (e: any) {
     console.error('GET /verify failed:', e?.message || e);
     res.status(500).send(html(`<h2 class="err">서버 오류</h2><p>잠시 후 다시 시도해주세요.</p>`));
