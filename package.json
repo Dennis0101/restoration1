@@ -38,4 +38,10 @@
   "prisma": "^5.22.0",
   "typescript": "^5.5.4"
  }
+  {
+  "scripts": {
+    "build:bot": "tsc -p apps/bot/tsconfig.json",
+    "register": "npm run build:bot && node apps/bot/dist/registerCommands.js"
+  }
+}
 }
