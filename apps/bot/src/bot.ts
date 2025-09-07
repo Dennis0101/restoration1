@@ -1,3 +1,4 @@
+// apps/bot/src/bot.ts
 import {
   Client,
   GatewayIntentBits,
@@ -7,7 +8,7 @@ import {
   ButtonStyle,
   EmbedBuilder,
 } from 'discord.js';
-import axios from 'axios';
+import axios, { type AxiosResponse } from 'axios';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -27,10 +28,8 @@ const EPHEMERAL = 64; // MessageFlags.Ephemeral
 // ---- API BASE URL 정규화 & axios 인스턴스 ----
 function normalizedBase() {
   const raw = process.env.API_BASE_URL || '';
-  // 프로토콜 없으면 추가
-  const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  // 마지막 슬래시 제거
-  return withProto.replace(/\/+$/, '');
+  const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`; // 프로토콜 보정
+  return withProto.replace(/\/+$/, ''); // 끝 슬래시 제거
 }
 const API_BASE = normalizedBase();
 
@@ -39,12 +38,12 @@ const http = axios.create({
   timeout: 10_000,
 });
 
-// 공통 헬퍼: URL 조립 안전 + 자세한 에러로그 + 재시도
+// 공통 헬퍼: URL 조립 + 자세한 에러로그 + 5xx 재시도
 function joinPath(path: string) {
   return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-async function postJson(path: string, data: any, retries = 2) {
+async function postJson(path: string, data: any, retries = 2): Promise<AxiosResponse<any>> {
   const url = joinPath(path);
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -60,9 +59,10 @@ async function postJson(path: string, data: any, retries = 2) {
       throw e;
     }
   }
+  throw new Error('unreachable');
 }
 
-async function getJson(path: string, retries = 2) {
+async function getJson(path: string, retries = 2): Promise<AxiosResponse<any>> {
   const url = joinPath(path);
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -78,6 +78,7 @@ async function getJson(path: string, retries = 2) {
       throw e;
     }
   }
+  throw new Error('unreachable');
 }
 
 // ---- 슬래시 핸들러 ----
@@ -87,7 +88,8 @@ client.on('interactionCreate', async (i) => {
   try {
     if (i.commandName === 'issuekey') {
       await i.deferReply({ flags: EPHEMERAL });
-      const { data } = await postJson('/cohort', { guildId: i.guildId });
+      const resp = await postJson('/cohort', { guildId: i.guildId });
+      const data = resp.data;
       const key = data.key;
       const link = `${API_BASE}/oauth/login?key=${encodeURIComponent(key)}`;
       await i.editReply({ content: `🔑 복구키: \`${key}\`\n동의 링크: ${link}` });
@@ -96,13 +98,15 @@ client.on('interactionCreate', async (i) => {
     if (i.commandName === 'restore') {
       const key = i.options.getString('key', true);
       await i.deferReply({ flags: EPHEMERAL });
-      const { data } = await postJson(`/restore/${encodeURIComponent(key)}`, {});
+      const resp = await postJson(`/restore/${encodeURIComponent(key)}`, {});
+      const data = resp.data;
       await i.editReply({ content: `⏳ 복구 시작! Job ID: \`${data.jobId}\`` });
     }
 
     if (i.commandName === 'status') {
       const job = i.options.getString('job', true);
-      const { data } = await getJson(`/status/${encodeURIComponent(job)}`);
+      const resp = await getJson(`/status/${encodeURIComponent(job)}`);
+      const data = resp.data;
       await i.reply({ flags: EPHEMERAL, content: `상태: ${data.status} (${data.progress}%) ${data.error ?? ''}` });
     }
 
