@@ -1,119 +1,137 @@
-// apps/api/src/routes.oauth.ts
-import { Router, Request, Response } from 'express';
-import { PrismaClient, Prisma } from '@prisma/client';
+// apps/api/src/routes.verify.ts
+import { Router, Request, Response, urlencoded } from 'express';
 import axios from 'axios';
+import { PrismaClient } from '@prisma/client';
+import { renderCaptcha } from './render';
+import { postToChannel, patchRoles } from './discord';
 
-export const oauthRouter = Router();
+export const verifyRouter = Router();
 const prisma = new PrismaClient();
 
-// ----- ENV & helpers -----
-const CLIENT_ID     = process.env.DISCORD_CLIENT_ID || '';
-const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || '';
-const REDIRECT_URI  = process.env.OAUTH_REDIRECT_URI || '';
+const SITEKEY = process.env.HCAPTCHA_SITEKEY;
+const SECRET  = process.env.HCAPTCHA_SECRET;
 
-function ensureEnv(res: Response) {
-  if (!CLIENT_ID || !CLIENT_SECRET || !REDIRECT_URI) {
-    res.status(500).send('OAuth env missing: DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET / OAUTH_REDIRECT_URI');
-    return false;
-  }
-  return true;
+if (!SITEKEY || !SECRET) {
+  console.error('❌ HCaptcha keys missing. Set HCAPTCHA_SITEKEY & HCAPTCHA_SECRET.');
 }
+
+function clientIp(req: Request) {
+  const fwd = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+  return fwd || (req.ip || '').replace('::ffff:', '') || '0.0.0.0';
+}
+
 function html(body: string) {
-  return `<!doctype html><meta charset="utf-8"><style>body{font-family:system-ui, -apple-system, 'Segoe UI', Roboto, Arial,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;padding:24px;line-height:1.5}</style>${body}`;
-}
-function isValidState(s: string) {
-  return typeof s === 'string' && s.length >= 4 && s.length <= 128;
+  return `
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;padding:24px;line-height:1.5}
+  .ok{color:#16a34a}.err{color:#dc2626}.btn{display:inline-block;margin-top:12px;padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none}
+</style>
+${body}`;
 }
 
-// ----- OAuth 로그인 링크 발급 (/oauth/login?key=...) -----
-oauthRouter.get('/oauth/login', (req: Request, res: Response) => {
-  if (!ensureEnv(res)) return;
-
-  const key = String(req.query.key ?? '');
-  if (!isValidState(key)) {
-    return res.status(400).send(html('<h2>잘못된 요청</h2><p>state(key)가 유효하지 않습니다.</p>'));
+// 간단 레이트리밋 (IP당 초당 5회)
+const windowMs = 1000;
+const maxReq = 5;
+const hits = new Map<string, { t: number; c: number }>();
+function rateLimit(req: Request, res: Response, next: Function) {
+  const ip = clientIp(req);
+  const now = Date.now();
+  const row = hits.get(ip);
+  if (!row || now - row.t > windowMs) {
+    hits.set(ip, { t: now, c: 1 });
+    return next();
   }
+  row.c++;
+  if (row.c > maxReq) {
+    return res.status(429).send(html(`<h2 class="err">Too Many Requests</h2><p>잠시 후 다시 시도해주세요.</p>`));
+  }
+  next();
+}
 
-  const url = new URL('https://discord.com/oauth2/authorize');
-  url.searchParams.set('client_id', CLIENT_ID);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('redirect_uri', REDIRECT_URI);
-  url.searchParams.set('scope', 'identify guilds.join');
-  url.searchParams.set('state', key);
-  // 선택 옵션 (사용자에게 강제 동의 화면): url.searchParams.set('prompt', 'consent');
+// ======= 라우트 =======
 
-  return res.redirect(url.toString());
+// 캡챠 폼 페이지
+verifyRouter.get('/verify', rateLimit, async (req: Request, res: Response) => {
+  try {
+    const guildId = String(req.query.guild ?? '');
+    const userId  = String(req.query.user ?? '');
+    if (!SITEKEY || !SECRET) {
+      return res.status(500).send(html(`<h2 class="err">서버 설정 오류</h2><p>캡챠 키가 설정되지 않았습니다.</p>`));
+    }
+    if (!guildId) {
+      return res.status(400).send(html(`<h2 class="err">잘못된 요청</h2><p>guild 파라미터가 필요합니다.</p>`));
+    }
+
+    // renderCaptcha 호출 (4번째 인자 = action, render.ts도 수정했을 경우)
+    res.setHeader('Content-Type', 'text/html')
+       .send(renderCaptcha(SITEKEY, guildId, userId || undefined, '/verify'));
+  } catch (e: any) {
+    console.error('GET /verify failed:', e?.message || e);
+    res.status(500).send(html(`<h2 class="err">서버 오류</h2><p>잠시 후 다시 시도해주세요.</p>`));
+  }
 });
 
-// ----- OAuth 콜백 (/oauth/callback) -----
-oauthRouter.get('/oauth/callback', async (req: Request, res: Response) => {
-  if (!ensureEnv(res)) return;
-
+// 캡챠 검증
+verifyRouter.post('/verify', rateLimit, urlencoded({ extended: true }), async (req: Request, res: Response) => {
+  const ip = clientIp(req);
   try {
-    const code = String(req.query.code ?? '');
-    const key  = String(req.query.state ?? '');
+    const body    = req.body as Record<string, string>;
+    const token   = body['h-captcha-response'];
+    const guildId = String(body.guildId ?? '');
+    const userId  = String(body.userId ?? '');
 
-    if (!code || !isValidState(key)) {
-      return res.status(400).send(html('<h2>잘못된 요청</h2><p>code/state가 없습니다.</p>'));
+    if (!SECRET || !SITEKEY) {
+      return res.status(500).send(html(`<h2 class="err">서버 설정 오류</h2><p>캡챠 키가 설정되지 않았습니다.</p>`));
+    }
+    if (!token || !guildId || !userId) {
+      return res.status(400).send(html(`<h2 class="err">잘못된 요청</h2><p>필수 값이 빠졌습니다.</p>`));
     }
 
-    // state(key) 확인
-    const cohort = await prisma.recoveryCohort.findUnique({ where: { key } });
-    if (!cohort) {
-      return res.status(400).send(html('<h2>세션 만료</h2><p>유효하지 않은 복구키입니다.</p>'));
-    }
-
-    // 토큰 교환
-    const tokenRes = await axios.post(
-      'https://discord.com/api/oauth2/token',
-      new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: REDIRECT_URI,
-      }),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 }
+    const { data: cap } = await axios.post(
+      'https://hcaptcha.com/siteverify',
+      new URLSearchParams({ secret: SECRET, response: token }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10_000 }
     );
-    const t = tokenRes.data as {
-      access_token: string; refresh_token: string; scope: string; expires_in: number;
-    };
 
-    // 유저 정보
-    const meRes = await axios.get('https://discord.com/api/users/@me', {
-      headers: { Authorization: `Bearer ${t.access_token}` },
-      timeout: 10000
-    });
-    const user = meRes.data as { id: string };
+    if (!cap?.success) {
+      await prisma.verificationLog.create({
+        data: { guildId, userId, ip, ua: String(req.headers['user-agent'] ?? ''), passed: false, reason: 'captcha_failed' }
+      });
+      return res.status(400).send(html(`<h2 class="err">인증 실패</h2><p>캡챠 검증에 실패했습니다. 다시 시도해주세요.</p>`));
+    }
 
-    // 토큰 저장 (여기서는 간단히 base64로 저장; 운영 시 별도 암호화 권장)
-    const accessEnc  = Buffer.from(t.access_token,  'utf8').toString('base64');
-    const refreshEnc = Buffer.from(t.refresh_token, 'utf8').toString('base64');
+    const set = await prisma.guildSettings.findUnique({ where: { guildId } });
+    const passed = true;
 
-    await prisma.recoveryMember.upsert({
-      where: { cohortId_userId: { cohortId: cohort.id, userId: user.id } },
-      update: {
-        accessTokenEnc: accessEnc,
-        refreshTokenEnc: refreshEnc,
-        tokenScope: t.scope,
-        tokenExpiresAt: new Date(Date.now() + t.expires_in * 1000),
-        roleSnapshot: Prisma.JsonNull,
-      },
-      create: {
-        cohortId: cohort.id,
-        userId: user.id,
-        accessTokenEnc: accessEnc,
-        refreshTokenEnc: refreshEnc,
-        tokenScope: t.scope,
-        tokenExpiresAt: new Date(Date.now() + t.expires_in * 1000),
-        roleSnapshot: Prisma.JsonNull,
-      }
+    await prisma.verificationLog.create({
+      data: { guildId, userId, ip, ua: String(req.headers['user-agent'] ?? ''), passed, reason: null }
     });
 
-    return res.send(html('<h2>✅ 등록 완료</h2><p>이제 복구 시 자동 참여/역할 복원이 가능합니다. 창을 닫아주세요.</p>'));
+    if (passed && set?.verifiedRoleId) {
+      try { await patchRoles(guildId, userId, [set.verifiedRoleId]); } catch {}
+    }
+    if (set?.logChannelId) {
+      try {
+        await postToChannel(set.logChannelId, {
+          embeds: [{
+            title: '✅ 인증 성공',
+            fields: [
+              { name: '유저', value: `<@${userId}>`, inline: true },
+              { name: '길드', value: guildId, inline: true },
+              { name: 'IP', value: ip, inline: true }
+            ],
+            timestamp: new Date().toISOString()
+          }]
+        });
+      } catch {}
+    }
+
+    return res.send(html(`<h2 class="ok">인증 완료</h2><p>창을 닫아주세요.</p>`));
   } catch (e: any) {
-    console.error('OAuth callback error:', e?.response?.data || e?.message || e);
-    const msg = e?.response?.data?.error_description ?? e?.message ?? 'unknown error';
-    return res.status(500).send(html(`<h2>OAuth 오류</h2><p>${String(msg)}</p>`));
+    console.error('POST /verify error:', e?.response?.data || e?.message || e);
+    return res.status(500).send(html(`<h2 class="err">서버 오류</h2><p>잠시 후 다시 시도해주세요.</p>`));
   }
 });
